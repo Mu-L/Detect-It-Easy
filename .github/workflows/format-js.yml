@@ -16,21 +16,13 @@ jobs:
     permissions:
       contents:  write
     
-    steps:  
+    steps: 
       - name:  Checkout repository
         uses: actions/checkout@v4
-        with:
+        with: 
           token: ${{ secrets. RELEASE_TOKEN }}
       
-      - name:  Setup Node.js
-        uses: actions/setup-node@v4
-        with:  
-          node-version: '20'
-      
-      - name: Install js-beautify
-        run: npm install -g js-beautify
-      
-      - name: Format JavaScript files in db directories
+      - name:  Format JavaScript files in db directories
         run: |
           find db db_custom db_extra -type f \
             !  -path '*/.vscode/*' \
@@ -49,21 +41,43 @@ jobs:
               
               # Check if file contains JavaScript-like syntax
               if head -c 1000 "$file" 2>/dev/null | grep -qE '(function|var |if\s*\(|for\s*\(|return |includeScript)'; then
-                echo "Formatting:  $file"
+                echo "Formatting: $file"
                 
-                # Format with js-beautify (preserves line breaks)
-                js-beautify --replace --type js \
-                  --indent-size 4 \
-                  --preserve-newlines \
-                  --max-preserve-newlines 2 \
-                  --end-with-newline \
-                  "$file" || true
+                # Check if file has CRLF line endings
+                if grep -q $'\r' "$file" 2>/dev/null; then
+                  HAS_CRLF=true
+                else
+                  HAS_CRLF=false
+                fi
+                
+                # Save original ending (newline or not)
+                if [ -s "$file" ] && [ "$(tail -c 1 "$file" | od -An -tx1 | tr -d ' ')" = "0a" ]; then
+                  HAS_NEWLINE=true
+                else
+                  HAS_NEWLINE=false
+                fi
+                
+                # Remove trailing whitespace (but not line endings)
+                # Convert tabs to 4 spaces
+                sed -i 's/[ \t]*\r$/\r/' "$file"  # For CRLF files
+                sed -i 's/[ \t]*$//' "$file"      # For LF files
+                sed -i 's/\t/    /g' "$file"
+                
+                # Restore CRLF if original had it
+                if [ "$HAS_CRLF" = true ]; then
+                  sed -i 's/$/\r/' "$file"
+                fi
+                
+                # Restore original ending
+                if [ "$HAS_NEWLINE" = false ]; then
+                  perl -pi -e 'chomp if eof' "$file"
+                fi
               fi
             done
       
       - name:  Check for changes
         id: check_changes
-        run:  |
+        run: |
           if git diff --quiet; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
@@ -71,10 +85,10 @@ jobs:
           fi
       
       - name:  Commit and push changes
-        if: steps.check_changes. outputs.has_changes == 'true'
+        if: steps. check_changes.outputs.has_changes == 'true'
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github. com"
-          git config --local user. name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add -A
           git commit -m "style: auto-format JavaScript files in db directories"
           git push
